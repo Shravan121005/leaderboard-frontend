@@ -3,16 +3,28 @@ import { initializeApp, getApp } from "firebase/app";
 import {
   getFirestore,
   collection,
-  query,
   onSnapshot,
-  doc,
-  getDoc,
 } from "firebase/firestore";
 import { Award } from "lucide-react";
 
 // Import components
 import Dropdown from './Dropdown.tsx';
 import Leaderboard from './Leaderboard.tsx';
+
+// --- Type Definitions ---
+// Define the shape of a User object
+interface UserData {
+  id: string;
+  name: string;
+  totalPoints: number;
+  createdAt?: any; // Firebase Timestamp type
+  updatedAt?: any; // Firebase Timestamp type
+}
+
+// Define the shape of a Leaderboard entry (User with rank)
+interface LeaderboardEntry extends UserData {
+  rank: number;
+}
 
 // --- Firebase Initialization ---
 // Firebase configuration loaded from environment variables
@@ -45,17 +57,18 @@ const API_BASE_URL = process.env.REACT_APP_API_BASE_URL;
 
 // Main App Component
 function App() {
-  const [users, setUsers] = useState([]);
-  const [selectedUserId, setSelectedUserId] = useState("");
-  const [selectedUserName, setSelectedUserName] = useState("Select a user");
-  const [newUserName, setNewUserName] = useState("");
-  const [claimedPoints, setClaimedPoints] = useState(null);
-  const [leaderboard, setLeaderboard] = useState([]);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [loading, setLoading] = useState(false);
+  // Use defined types for state initialization
+  const [users, setUsers] = useState<UserData[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState<string>("");
+  const [selectedUserName, setSelectedUserName] = useState<string>("Select a user");
+  const [newUserName, setNewUserName] = useState<string>("");
+  const [claimedPoints, setClaimedPoints] = useState<number | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const dropdownRef = useRef(null);
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null); // Specify HTMLDivElement for ref
+  const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
 
   // Fetch users and leaderboard from backend
   const fetchUsersAndLeaderboard = useCallback(async () => {
@@ -66,7 +79,7 @@ function App() {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
+      const data: LeaderboardEntry[] = await response.json(); // Cast data to expected type
       setUsers(data);
       setLeaderboard(data);
 
@@ -80,7 +93,7 @@ function App() {
           setSelectedUserId('');
           setSelectedUserName('Select a user');
       }
-    } catch (error) {
+    } catch (error: any) { // Catch error as 'any' or specific Error type
       console.error("Error fetching users/leaderboard:", error);
       setErrorMessage("Failed to load users/leaderboard. Is the backend running?");
     } finally {
@@ -95,14 +108,16 @@ function App() {
     // Firestore listener for real-time user updates (totalPoints change)
     const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/users`);
     const unsubscribeUsers = onSnapshot(usersCollectionRef, (snapshot) => {
-      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      const sortedLeaderboard = usersData.sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0));
-      const rankedLeaderboard = sortedLeaderboard.map((user, index) => ({
-        ...user,
-        rank: index + 1
-      }));
+      // Fix 1: Ensure id is correctly assigned and type casting is clear
+      // Use Omit to prevent 'id' from doc.data() from conflicting with doc.id
+      const usersData: UserData[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as Omit<UserData, 'id'> }));
+      
+      // Fix 2: Assign the result of map to a new variable
+      const sortedAndRankedLeaderboard: LeaderboardEntry[] = usersData.sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0))
+        .map((user, index) => ({ ...user, rank: index + 1 }));
+      
       setUsers(usersData);
-      setLeaderboard(rankedLeaderboard);
+      setLeaderboard(sortedAndRankedLeaderboard); // Use the correctly named variable
       
       const currentSelectedUser = usersData.find(u => u.id === selectedUserId);
       if (currentSelectedUser) {
@@ -111,7 +126,7 @@ function App() {
           setSelectedUserId('');
           setSelectedUserName('Select a user');
       }
-    }, (error) => {
+    }, (error: any) => {
       console.error("Error fetching users from Firestore listener:", error);
       setErrorMessage("Real-time user updates failed. Check Firestore rules.");
     });
@@ -123,8 +138,8 @@ function App() {
 
   // Handle click outside dropdown to close it
   useEffect(() => {
-    function handleClickOutside(event) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsDropdownOpen(false);
       }
     }
@@ -153,19 +168,19 @@ function App() {
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
 
-      const newUser = await response.json();
+      const newUser: UserData = await response.json();
       setNewUserName("");
       setSelectedUserId(newUser.id);
       setSelectedUserName(newUser.name);
       setIsDropdownOpen(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error adding user via backend:", error);
       setErrorMessage(`Failed to add user: ${error.message}`);
     }
   };
 
   // Handle selecting a user from the dropdown
-  const handleSelectUser = (user) => {
+  const handleSelectUser = (user: UserData) => {
     setSelectedUserId(user.id);
     setSelectedUserName(user.name);
     setIsDropdownOpen(false);
@@ -193,7 +208,7 @@ function App() {
       const result = await response.json();
       setClaimedPoints(result.pointsClaimed);
       setTimeout(() => setClaimedPoints(null), 3000);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error claiming points via backend:", error);
       setErrorMessage(`Failed to claim points: ${error.message}`);
     }
