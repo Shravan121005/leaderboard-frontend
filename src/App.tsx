@@ -70,7 +70,7 @@ function App() {
   const dropdownRef = useRef<HTMLDivElement>(null); // Specify HTMLDivElement for ref
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
 
-  // Fetch users and leaderboard from backend
+  // Function to fetch users and leaderboard from the backend
   const fetchUsersAndLeaderboard = useCallback(async () => {
     setLoading(true);
     setErrorMessage('');
@@ -106,18 +106,16 @@ function App() {
     fetchUsersAndLeaderboard(); // Initial fetch via backend
 
     // Firestore listener for real-time user updates (totalPoints change)
+    // This listener will still ensure data consistency if multiple clients are active
+    // or if backend updates are delayed, but the UI will update optimistically first.
     const usersCollectionRef = collection(db, `artifacts/${appId}/public/data/users`);
     const unsubscribeUsers = onSnapshot(usersCollectionRef, (snapshot) => {
-      // Fix 1: Ensure id is correctly assigned and type casting is clear
-      // Use Omit to prevent 'id' from doc.data() from conflicting with doc.id
       const usersData: UserData[] = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as Omit<UserData, 'id'> }));
-      
-      // Fix 2: Assign the result of map to a new variable
       const sortedAndRankedLeaderboard: LeaderboardEntry[] = usersData.sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0))
         .map((user, index) => ({ ...user, rank: index + 1 }));
       
       setUsers(usersData);
-      setLeaderboard(sortedAndRankedLeaderboard); // Use the correctly named variable
+      setLeaderboard(sortedAndRankedLeaderboard);
       
       const currentSelectedUser = usersData.find(u => u.id === selectedUserId);
       if (currentSelectedUser) {
@@ -173,6 +171,18 @@ function App() {
       setSelectedUserId(newUser.id);
       setSelectedUserName(newUser.name);
       setIsDropdownOpen(false);
+      
+      // Optimistic update: Add the new user to the local state immediately
+      // The Firestore listener will eventually reconcile if there's a discrepancy.
+      setUsers(prevUsers => {
+        const updatedUsers = [...prevUsers, { ...newUser, totalPoints: 0 }]; // New users start with 0 points
+        // Re-sort and rank the updated list for the leaderboard
+        const sortedAndRanked = updatedUsers.sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0))
+          .map((user, index) => ({ ...user, rank: index + 1 }));
+        setLeaderboard(sortedAndRanked);
+        return updatedUsers;
+      });
+
     } catch (error: any) {
       console.error("Error adding user via backend:", error);
       setErrorMessage(`Failed to add user: ${error.message}`);
@@ -205,9 +215,22 @@ function App() {
         throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
+      const result = await response.json(); // Backend returns pointsClaimed and newTotalPoints
       setClaimedPoints(result.pointsClaimed);
       setTimeout(() => setClaimedPoints(null), 3000);
+
+      // Optimistic update: Update the selected user's points in local state immediately
+      setUsers(prevUsers => {
+        const updatedUsers = prevUsers.map(user =>
+          user.id === selectedUserId ? { ...user, totalPoints: result.newTotalPoints } : user
+        );
+        // Re-sort and rank the updated list for the leaderboard
+        const sortedAndRanked = updatedUsers.sort((a, b) => (b.totalPoints || 0) - (a.totalPoints || 0))
+          .map((user, index) => ({ ...user, rank: index + 1 }));
+        setLeaderboard(sortedAndRanked);
+        return updatedUsers; // Return updated users for the users state
+      });
+
     } catch (error: any) {
       console.error("Error claiming points via backend:", error);
       setErrorMessage(`Failed to claim points: ${error.message}`);
